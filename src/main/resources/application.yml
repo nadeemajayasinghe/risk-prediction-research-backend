@@ -1,0 +1,118 @@
+spring:
+  application:
+    name: risk-prediction-system
+  profiles:
+    active: dev
+  jpa:
+    open-in-view: false
+    properties:
+      hibernate:
+        jdbc.time_zone: UTC
+        format_sql: false
+  cache:
+    type: caffeine
+    caffeine:
+      spec: maximumSize=1000,expireAfterWrite=10m
+  flyway:
+    enabled: true
+    baseline-on-migrate: true
+    locations: classpath:db/migration
+
+server:
+  port: 8080
+  error:
+    include-message: always
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      show-details: when-authorized
+
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
+    operations-sorter: method
+  api-docs:
+    path: /v3/api-docs
+
+# AI integration
+ai:
+  over-budget:
+    base-url: ${AI_OVER_BUDGET_URL:http://localhost:9001}
+    predict-path: /predict
+    timeout-ms: 3000
+  req-change:
+    base-url: ${AI_REQ_CHANGE_URL:http://localhost:9002}
+    predict-path: /predict
+    timeout-ms: 8000
+
+# Aggregation policy (tunable without code change)
+aggregation:
+  weights:
+    over-budget: 0.55
+    req-change: 0.45
+  thresholds:
+    medium: 34
+    high: 67
+  escalation:
+    single-score-floor: 80
+
+# Security toggle (off in dev, on in prod)
+security:
+  jwt:
+    enabled: false
+    issuer-uri: ${JWT_ISSUER_URI:}
+
+resilience4j:
+  retry:
+    instances:
+      overBudgetClient:
+        max-attempts: 3
+        wait-duration: 200ms
+        exponential-backoff-multiplier: 2
+        retry-exceptions:
+          - org.springframework.web.reactive.function.client.WebClientResponseException$InternalServerError
+          - org.springframework.web.reactive.function.client.WebClientResponseException$ServiceUnavailable
+          - org.springframework.web.reactive.function.client.WebClientResponseException$BadGateway
+          - org.springframework.web.reactive.function.client.WebClientResponseException$GatewayTimeout
+          - java.io.IOException
+          - java.util.concurrent.TimeoutException
+      reqChangeClient:
+        max-attempts: 3
+        wait-duration: 300ms
+        exponential-backoff-multiplier: 2
+        retry-exceptions:
+          - org.springframework.web.reactive.function.client.WebClientResponseException$InternalServerError
+          - org.springframework.web.reactive.function.client.WebClientResponseException$ServiceUnavailable
+          - org.springframework.web.reactive.function.client.WebClientResponseException$BadGateway
+          - org.springframework.web.reactive.function.client.WebClientResponseException$GatewayTimeout
+          - java.io.IOException
+          - java.util.concurrent.TimeoutException
+  circuitbreaker:
+    instances:
+      overBudgetClient:
+        sliding-window-size: 20
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 30s
+        permitted-number-of-calls-in-half-open-state: 5
+      reqChangeClient:
+        sliding-window-size: 20
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 30s
+        permitted-number-of-calls-in-half-open-state: 5
+  bulkhead:
+    instances:
+      overBudgetClient:
+        max-concurrent-calls: 20
+      reqChangeClient:
+        max-concurrent-calls: 10
+
+logging:
+  level:
+    com.project.management.risk.prediction.system: INFO
+    org.springframework.web: INFO
+    org.flywaydb: INFO
